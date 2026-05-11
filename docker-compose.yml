@@ -1,0 +1,59 @@
+version: '3'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.4.2
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+
+  fluentd:
+    build: ./fluentd
+    volumes:
+      - ./fluentd/conf:/fluentd/etc
+      - ./logs:/logs
+    ports:
+      - "8080:8080"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.4.2
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+
+  producer:
+    build: ./producer
+    depends_on:
+      - rabbitmq
+      - fluentd
+    environment:
+      - TELEGRAM_TOKEN=8713422754:AAHc3W8jmo5qWLD78wKGRkZ07c6yU9aUC1s
+      - RABBITMQ_HOST=rabbitmq
+      - FLUENTD_URL=http://fluentd:8080/app.delivery
+
+  consumer:
+    build: ./consumer
+    depends_on:
+      - rabbitmq
+      - fluentd
+    environment:
+      - TELEGRAM_TOKEN=8707227327:AAHtBMejMmv-iUVVkZ_k9nDVKZXXs9EVLRI
+      - RABBITMQ_HOST=rabbitmq
+      - FLUENTD_URL=http://fluentd:8080/app.delivery
