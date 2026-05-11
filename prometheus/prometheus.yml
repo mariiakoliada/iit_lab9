@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'courier_bot'
+    static_configs:
+      - targets: ['producer:8001']
+
+  - job_name: 'client_bot'
+    static_configs:
+      - targets: ['consumer:8002']

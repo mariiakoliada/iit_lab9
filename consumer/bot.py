@@ -6,6 +6,7 @@ import time
 import threading
 import requests
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from prometheus_client import Counter, Gauge, start_http_server
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
@@ -20,6 +21,26 @@ STATUS_EMOJI = {
     "delivered": "✅",
     "cancelled": "❌"
 }
+
+# --- Метрики Prometheus ---
+NOTIFICATIONS_RECEIVED = Counter(
+    'client_notifications_received_total',
+    'Кількість отриманих сповіщень клієнтом',
+    ['status_type']
+)
+QUEUE_CHECKS = Counter(
+    'client_queue_checks_total',
+    'Кількість перевірок черги'
+)
+QUEUE_SIZE = Gauge(
+    'client_queue_messages_found',
+    'Кількість повідомлень знайдених при останній перевірці'
+)
+BOT_ACTIVE = Gauge(
+    'client_bot_active',
+    'Чи активний бот клієнта (1 = так)'
+)
+# -------------------------
 
 def send_log(event_type, data):
     payload = {"event": event_type, **data}
@@ -59,6 +80,9 @@ def check_queue():
         else:
             break
     connection.close()
+    # Оновлюємо метрики
+    QUEUE_CHECKS.inc()
+    QUEUE_SIZE.set(len(messages))
     return messages
 
 def send_notifications():
@@ -75,6 +99,8 @@ def send_notifications():
                 f"📋 {msg['text']}"
             )
             bot.send_message(user_chat_id, text, parse_mode='Markdown')
+            # Збільшуємо лічильник сповіщень
+            NOTIFICATIONS_RECEIVED.labels(status_type=msg['type']).inc()
             send_log("notification_delivered", {
                 "chat_id": user_chat_id,
                 "status": msg['type'],
@@ -132,6 +158,7 @@ def check_status(message):
                 f"📋 {msg['text']}"
             )
             bot.send_message(message.chat.id, text, parse_mode='Markdown')
+            NOTIFICATIONS_RECEIVED.labels(status_type=msg['type']).inc()
             send_log("notification_delivered", {
                 "chat_id": message.chat.id,
                 "status": msg['type'],
@@ -144,6 +171,9 @@ def check_status(message):
             reply_markup=get_main_menu()
         )
 
+# Запускаємо HTTP-сервер метрик на порту 8002
+start_http_server(8002)
+BOT_ACTIVE.set(1)
 print("Бот Клієнт запущено...")
 scheduler_thread = threading.Thread(target=scheduler)
 scheduler_thread.daemon = True

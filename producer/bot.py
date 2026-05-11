@@ -5,12 +5,29 @@ import os
 import time
 import requests
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from prometheus_client import Counter, Gauge, start_http_server
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
 FLUENTD_URL = os.environ.get('FLUENTD_URL', 'http://localhost:8080/app.delivery')
 
 bot = telebot.TeleBot(TOKEN)
+
+# --- Метрики Prometheus ---
+MESSAGES_SENT = Counter(
+    'courier_messages_sent_total',
+    'Загальна кількість відправлених повідомлень у чергу',
+    ['status_type']
+)
+QUEUE_ERRORS = Counter(
+    'courier_queue_errors_total',
+    'Кількість помилок при відправці в чергу'
+)
+BOT_ACTIVE = Gauge(
+    'courier_bot_active',
+    'Чи активний бот кур\'єра (1 = так)'
+)
+# -------------------------
 
 def send_log(event_type, data):
     payload = {"event": event_type, **data}
@@ -37,15 +54,22 @@ def get_rabbitmq_connection():
             time.sleep(3)
 
 def send_to_queue(payload):
-    connection = get_rabbitmq_connection()
-    channel = connection.channel()
-    channel.queue_declare(queue='delivery_queue', durable=True)
-    channel.basic_publish(
-        exchange='',
-        routing_key='delivery_queue',
-        body=json.dumps(payload, ensure_ascii=False)
-    )
-    connection.close()
+    try:
+        connection = get_rabbitmq_connection()
+        channel = connection.channel()
+        channel.queue_declare(queue='delivery_queue', durable=True)
+        channel.basic_publish(
+            exchange='',
+            routing_key='delivery_queue',
+            body=json.dumps(payload, ensure_ascii=False)
+        )
+        connection.close()
+        # Збільшуємо лічильник відправлених повідомлень
+        MESSAGES_SENT.labels(status_type=payload['type']).inc()
+        print(f"Відправлено в чергу: {payload}")
+    except Exception as e:
+        QUEUE_ERRORS.inc()
+        print(f"Помилка черги: {e}")
 
 def get_main_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -150,5 +174,8 @@ def process_cancel_reason(message):
         reply_markup=get_main_menu()
     )
 
+# Запускаємо HTTP-сервер метрик на порту 8001
+start_http_server(8001)
+BOT_ACTIVE.set(1)
 print("Бот Кур'єр запущено...")
 bot.infinity_polling()

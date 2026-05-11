@@ -1,3 +1,4 @@
 pyTelegramBotAPI
 pika
 requests
+prometheus_client

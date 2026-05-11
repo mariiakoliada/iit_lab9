@@ -40,6 +40,8 @@ services:
 
   producer:
     build: ./producer
+    ports:
+      - "8001:8001"
     depends_on:
       - rabbitmq
       - fluentd
@@ -50,6 +52,8 @@ services:
 
   consumer:
     build: ./consumer
+    ports:
+      - "8002:8002"
     depends_on:
       - rabbitmq
       - fluentd
@@ -57,3 +61,22 @@ services:
       - TELEGRAM_TOKEN=8707227327:AAHtBMejMmv-iUVVkZ_k9nDVKZXXs9EVLRI
       - RABBITMQ_HOST=rabbitmq
       - FLUENTD_URL=http://fluentd:8080/app.delivery
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - producer
+      - consumer
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
